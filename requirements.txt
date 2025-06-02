@@ -1,1 +1,3 @@
- pyfrotz
+pyfrotz
+google-adk
+python-dotenv
