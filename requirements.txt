@@ -1,3 +1,7 @@
 pyfrotz
 google-adk
 python-dotenv
+TTS
+numpy
+torch
+pygame
