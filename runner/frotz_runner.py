@@ -11,11 +11,11 @@ logging.basicConfig(
     level=logging.DEBUG,
     format='%(asctime)s.%(msecs)03d - %(levelname)s - %(message)s',
     datefmt='%H:%M:%S',
-    handlers=[
-        logging.StreamHandler(sys.stdout)
-    ]
+    filename='frotz.log',  # Log to file instead of stdout
+    filemode='a'
 )
 logger = logging.getLogger('FrotzRunner')
+logger.propagate = False  # Prevent propagation to root logger
 
 class FrotzRunner:
     def __init__(self, game_path: str, frotz_path: str = '/opt/homebrew/bin/dfrotz'):
