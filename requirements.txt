@@ -5,3 +5,4 @@ TTS
 numpy
 torch
 pygame
+google-cloud-aiplatform>=1.38.1

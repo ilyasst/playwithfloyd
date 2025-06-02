@@ -2,26 +2,25 @@
 
 A modular framework for running and interacting with Z-machine games (e.g., .z5, .z3) using the Frotz interpreter, designed for agent-based play and research.
 
-## Project Structure
+## Installation
 
-```
-text-based-autploay/
-│
-├── games/                  # Z-machine game files (.z5, .z3, etc.)
-│   └── 905.z5
-│
-├── runner/                 # Game runner module
-│   ├── __init__.py
-│   └── frotz_runner.py     # FrotzRunner class for running/interacting with Frotz
-│
-├── agents/                 # (For future) Agent logic, planners, etc.
-│   └── __init__.py
-│
-├── tests/                  # Test scripts
-│
-├── requirements.txt
-└── README.md
-```
+You need python 3.11 venv at most: `brew install python@3.11`
+
+You also need google-cloud-sdk: `brew install --cask google-cloud-sdk`
+
+You also need frotz: `brew install frotz`
+
+The rest can be installed from `requirements.txt`
+
+### Setup your gcloud
+
+Check it's installed: `gcloud --version`
+
+Authenticate: `gcloud auth login`
+
+Set your project with: `gcloud config set project [PROJECT_NAME]`
+
+For some reason, you also have to do this: `gcloud auth application-default login`
 
 ## Requirements
 - Python 3.8+
