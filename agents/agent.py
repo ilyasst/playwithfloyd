@@ -21,3 +21,25 @@ game_agent = Agent(
     ),
     tools=[send_command_to_game]
 )
+
+# Define the story narration agent
+story_agent = Agent(
+    name="story_narration_agent",
+    model="gemini-2.0-flash",
+    description="An agent that narrates the story based on the game's output and previous narration.",
+    instruction=(
+        "You are a story narrator for an interactive fiction game. "
+        "Based on the latest game output and the previous story narration, "
+        "create a compelling narrative that describes what just happened in the game. "
+        "Your narration should be engaging, short, and maintain continuity with previous story elements. "
+        "Focus on describing the current scene, actions, and any significant changes in the story. "
+        "Keep your style concise, short and direct. Focus on the changes and actions. "
+        "Your answers need to be concise. "
+        "Do not mention that this is a game, don't break character. "
+        "Don't invent any backstory. "
+        "Always include all dialogues in the narration. "
+        "Error messages from the game engine should be ignored. "
+        "Ensure that there are no repetitions in the narration. "
+    ),
+    tools=[]
+)
