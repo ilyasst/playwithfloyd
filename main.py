@@ -22,6 +22,8 @@ load_dotenv()
 
 # Get TTS configuration from environment
 USE_TTS = os.getenv('USE_TTS', 'false').lower() == 'true'
+# Get wait for key configuration from environment
+WAIT_FOR_KEY = os.getenv('WAIT_FOR_KEY', 'true').lower() == 'true'
 
 # Set up logging to file only
 logging.basicConfig(
@@ -44,7 +46,9 @@ SESSION_ID = "game_session_001"
 session_service = InMemorySessionService()
 
 def wait_for_key():
-    """Wait for any key press to continue."""
+    """Wait for any key press to continue if enabled in environment."""
+    if not WAIT_FOR_KEY:
+        return
     print("\nPress any key to continue...", end='', flush=True)
     # Use select to wait for input without blocking
     select.select([sys.stdin], [], [], None)
