@@ -1,57 +1,63 @@
 # Text-Based Autoplay
 
-A modular framework for running and interacting with Z-machine games (e.g., .z5, .z3) using the Frotz interpreter, designed for agent-based play and research.
+An AI-powered framework for playing Z-machine games (e.g., .z5, .z3) using the Frotz interpreter. Features automated gameplay with AI agents and story narration.
 
-## Installation
+## Quick Start
 
-You need python 3.11 venv at most: `brew install python@3.11`
+1. Install dependencies:
+```bash
+brew install python@3.11 frotz google-cloud-sdk
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
 
-You also need google-cloud-sdk: `brew install --cask google-cloud-sdk`
+2. Set up Google Cloud:
+```bash
+gcloud auth login
+gcloud config set project [PROJECT_NAME]
+gcloud auth application-default login
+```
 
-You also need frotz: `brew install frotz`
+3. Configure environment variables in `.env`:
+```
+USE_TTS=false        # Enable/disable text-to-speech narration
+WAIT_FOR_KEY=true    # Enable/disable key press after each command
+```
 
-The rest can be installed from `requirements.txt`
+4. Run a game:
+```bash
+python main.py [path/to/game.z5]
+```
 
-### Setup your gcloud
+## Features
 
-Check it's installed: `gcloud --version`
+- AI-powered gameplay using Google's Gemini model
+- Automated story narration
+- Optional text-to-speech narration
+- JSON and text-based logging
+- Interactive or automated play modes
 
-Authenticate: `gcloud auth login`
+## Project Structure
 
-Set your project with: `gcloud config set project [PROJECT_NAME]`
-
-For some reason, you also have to do this: `gcloud auth application-default login`
+```
+.
+├── agents/          # AI agent definitions
+├── games/          # Z-machine game files
+├── logs/           # Game and narration logs
+├── runner/         # Frotz game runner
+├── main.py         # Main game loop
+├── tts_handler.py  # Text-to-speech support
+└── requirements.txt
+```
 
 ## Requirements
-- Python 3.8+
-- [dfrotz](https://github.com/DavidGriffith/frotz) (install via Homebrew: `brew install frotz`)
-- Python package: `pyfrotz`
 
-## Usage
+- Python 3.11+
+- Frotz interpreter
+- Google Cloud SDK
+- Dependencies in requirements.txt
 
-### Running a Game Programmatically
+## License
 
-Use the `FrotzRunner` class in `runner/frotz_runner.py`:
-
-```python
-from runner.frotz_runner import FrotzRunner
-
-runner = FrotzRunner('games/905.z5')
-output = runner.run_commands(['look', 'inventory'])
-print(output)
-```
-
-### Interactive Play
-
-```python
-runner = FrotzRunner('games/905.z5')
-runner.interactive()
-```
-
-## Next Steps
-- Implement agent logic in `agents/`
-- Build a knowledge base and decision-making system for automated play
-
----
-
-This project is under active development.
+MIT License - see LICENSE file for details
