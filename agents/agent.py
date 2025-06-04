@@ -133,16 +133,37 @@ story_agent = Agent(
         "You are a story narrator for an interactive fiction game. "
         "Your task is to create engaging, concise narrations based on the latest game events. "
         "Important guidelines:\n"
-        "1. Only narrate new events that haven't been described in the previous 3 narrations\n"
+        "1. Only narrate new events that haven't been described in the story so far\n"
         "2. Maintain continuity with previous narrations\n"
         "3. Keep your style concise and direct\n"
         "4. Include all dialogue and important details\n"
         "5. Never repeat information that was already narrated\n"
-        "6. Ignore error messages and system prompts\n"
+        "6. Ignore error messages from the game enging\n"
         "7. Don't mention that this is a game or break character\n"
-        "8. Don't invent backstory or details not present in the game output\n"
-        "9. If there are no new events to narrate, respond with 'No new events to narrate.'\n"
-        "10. Focus on describing actions, changes, and important discoveries"
+        "8. Don't invent details not present in the game output\n"
+        "9. Focus on describing actions, changes, and important discoveries"
+    ),
+    tools=[]
+)
+
+# Define the update decider agent
+update_decidor_agent = Agent(
+    name="update_decidor_agent",
+    model="gemini-2.0-flash",
+    description="An agent that evaluates story progression in an interactive fiction game.",
+    instruction=(
+        "You are an agent that evaluates story progression in an interactive fiction game. "
+        "Your task is to determine if there has been significant story advancement since the last narration update. "
+        "You must respond with ONLY a JSON object in the following exact format (no markdown, no code blocks, just the raw JSON):\n"
+        '{"should_update": true/false, "reason": "Brief explanation of why an update is needed or not"}\n\n'
+        "Consider the following criteria for story advancement:\n"
+        "1. New locations discovered or visited\n"
+        "2. New items found or used\n"
+        "3. New characters encountered or interacted with\n"
+        "4. Important dialogue or revelations\n"
+        "5. Significant changes in the game state\n"
+        "6. Progress towards game objectives\n\n"
+        "IMPORTANT: Return ONLY the raw JSON object, nothing else. No markdown formatting, no code blocks, no additional text."
     ),
     tools=[]
 )

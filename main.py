@@ -7,7 +7,7 @@ import argparse
 import asyncio
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
-from agents.agent import game_agent, story_agent
+from agents.agent import game_agent, story_agent, update_decidor_agent
 from datetime import datetime
 import select
 import time
@@ -82,6 +82,38 @@ def clean_log_text(log_text: str) -> str:
     
     return '\n'.join(lines)
 
+def log_agent_interaction(agent_name: str, system_message: str, prompt: str, response: str):
+    """Log agent interactions to a JSON file."""
+    timestamp = datetime.now().strftime('%H:%M:%S.%f')[:-3]
+    
+    # Create logs directory if it doesn't exist
+    os.makedirs('logs', exist_ok=True)
+    
+    # Create the log entry
+    log_entry = {
+        "timestamp": timestamp,
+        "system_message": system_message,
+        "prompt": prompt,
+        "response": response
+    }
+    
+    # Get the log file path
+    log_file = f'logs/{agent_name}_interactions.json'
+    
+    # Read existing entries or create new list
+    try:
+        with open(log_file, 'r', encoding='utf-8') as f:
+            entries = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        entries = []
+    
+    # Append new entry
+    entries.append(log_entry)
+    
+    # Write back to file
+    with open(log_file, 'w', encoding='utf-8') as f:
+        json.dump(entries, f, indent=2)
+
 async def get_agent_command(log_file: str) -> str:
     """Get the next command from the agent based on the game log."""
     # Create the specific session where the conversation will happen
@@ -125,6 +157,14 @@ async def get_agent_command(log_file: str) -> str:
                 final_response_text = f"Agent escalated: {event.error_message or 'No specific message.'}"
             break
 
+    # Log the agent interaction
+    log_agent_interaction(
+        "game_agent",
+        game_agent.instruction,
+        query,
+        final_response_text
+    )
+
     return final_response_text.strip()
 
 def log_agent_command(log_file: str, command: str):
@@ -155,40 +195,10 @@ async def get_story_narration(log_text: str, story_log: str) -> str:
     )
     logger.info(f"Runner created for story agent '{runner.agent.name}'")
 
-    # Extract complete narrations from the story log
-    narrations = []
-    current_narration = []
-    in_narration = False
-    
-    for line in story_log.split('\n'):
-        if '[STORY NARRATION]' in line:
-            # Start of a new narration
-            if current_narration:
-                narrations.append('\n'.join(current_narration))
-            current_narration = [line.split('[STORY NARRATION]')[1].strip()]
-            in_narration = True
-        elif in_narration and line.strip():
-            # Continue current narration
-            current_narration.append(line.strip())
-        elif in_narration and not line.strip():
-            # End of current narration
-            if current_narration:
-                narrations.append('\n'.join(current_narration))
-            current_narration = []
-            in_narration = False
-    
-    # Add the last narration if we're still in one
-    if current_narration:
-        narrations.append('\n'.join(current_narration))
-    
-    # Get the last 3 complete narrations
-    last_narrations = narrations[-3:] if narrations else []
-    previous_story = '\n\n'.join(last_narrations)
-
     # Prepare the user's message in ADK format
     query = (
         "You are narrating an interactive fiction story. Here are the last 3 narrations and the latest game events:\n\n"
-        f"Previous narrations:\n{previous_story}\n\n"
+        f"Previous narrations:\n{story_log}\n\n"
         f"Latest game events to narrate:\n{log_text}\n\n"
         "Create a new narration that:\n"
         "1. Only describes the new events that haven't been narrated yet\n"
@@ -211,12 +221,21 @@ async def get_story_narration(log_text: str, story_log: str) -> str:
                 final_response_text = f"Story agent escalated: {event.error_message or 'No specific message.'}"
             break
 
+    # Log the agent interaction
+    log_agent_interaction(
+        "story_narration",
+        story_agent.instruction,
+        query,
+        final_response_text
+    )
+
     return final_response_text.strip()
 
-def log_story_narration(story_log_file: str, narration: str):
+def log_story_narration(story_log_file: str, narration: str, update_decision: dict = None):
     """Add the story narration to the log file."""
     # Remove any leading/trailing whitespace
     narration = narration.strip()
+    
     # Write to log file with double newline for readability
     with open(story_log_file, 'a', encoding='utf-8') as f:
         f.write(f"{narration}\n\n")
@@ -252,14 +271,15 @@ def get_json_log_filename(game_path: str) -> str:
     # Return the full path
     return f'logs/{game_name}_{timestamp}.json'
 
-def log_game_update(json_log_file: str, game_output: str, if_agent_action: str = None):
+def log_game_update(json_log_file: str, game_output: str, if_agent_action: str = None, story_updated: bool = False):
     """Add a game update to the JSON log file."""
     timestamp = datetime.now().strftime('%H:%M:%S.%f')[:-3]
     
     # Create the update object
     update = {
         "timestamp": timestamp,
-        "game_output": game_output
+        "game_output": game_output,
+        "story_updated": story_updated
     }
     
     # Add optional fields if they exist
@@ -349,6 +369,93 @@ def get_last_n_json_updates(json_log_file: str, n: int = 3) -> str:
     except (FileNotFoundError, json.JSONDecodeError) as e:
         logger.error(f"Error reading JSON log file: {e}")
         return ""
+
+async def get_update_decision(json_log_file: str) -> dict:
+    """Get decision from update_decidor_agent about whether to update the story."""
+    # Create the specific session where the conversation will happen
+    session = await session_service.create_session(
+        app_name=APP_NAME,
+        user_id=USER_ID,
+        session_id=f"{SESSION_ID}_update_decider"
+    )
+    logger.info(f"Update decider session created: App='{APP_NAME}', User='{USER_ID}', Session='{SESSION_ID}_update_decider'")
+
+    runner = Runner(
+        agent=update_decidor_agent,
+        app_name=APP_NAME,
+        session_service=session_service
+    )
+    logger.info(f"Runner created for update decider agent '{runner.agent.name}'")
+
+    # Get the last story update timestamp
+    try:
+        with open(json_log_file, 'r', encoding='utf-8') as f:
+            updates = json.load(f)
+        
+        # Find the last story update
+        last_story_update = None
+        for update in reversed(updates):
+            if update.get('story_updated', False):
+                last_story_update = update
+                break
+        
+        # Get all updates since the last story update
+        if last_story_update:
+            updates_since_last_story = [
+                update for update in updates 
+                if update['timestamp'] > last_story_update['timestamp']
+            ]
+        else:
+            updates_since_last_story = updates
+        
+        # Format the updates for the agent
+        formatted_updates = []
+        for update in updates_since_last_story:
+            formatted_update = f"[{update['timestamp']}] {update['game_output']}"
+            if 'if_agent_action' in update:
+                formatted_update += f"\n[AGENT] {update['if_agent_action']}"
+            formatted_updates.append(formatted_update)
+        
+        updates_text = '\n\n'.join(formatted_updates)
+    except (FileNotFoundError, json.JSONDecodeError) as e:
+        logger.error(f"Error reading JSON log file: {e}")
+        updates_text = ""
+
+    # Prepare the user's message in ADK format
+    query = (
+        "Evaluate if there has been significant story progression since the last narration update.\n\n"
+        f"Game events since last story update:\n{updates_text}\n\n"
+        "Respond with a JSON object indicating if a story update is needed and why."
+    )
+    content = types.Content(role='user', parts=[types.Part(text=query)])
+
+    final_response_text = "Update decider agent did not produce a final response."  # Default
+
+    # Run the agent and process events
+    async for event in runner.run_async(user_id=USER_ID, session_id=f"{SESSION_ID}_update_decider", new_message=content):
+        if event.is_final_response():
+            if event.content and event.content.parts:
+                final_response_text = event.content.parts[0].text
+            elif event.actions and event.actions.escalate:
+                final_response_text = f"Update decider agent escalated: {event.error_message or 'No specific message.'}"
+            break
+
+    try:
+        # Parse the JSON response
+        decision = json.loads(final_response_text)
+        
+        # Log the agent interaction
+        log_agent_interaction(
+            "update_decidor",
+            update_decidor_agent.instruction,
+            query,
+            final_response_text
+        )
+        
+        return decision
+    except json.JSONDecodeError:
+        logger.error(f"Failed to parse update decider response as JSON: {final_response_text}")
+        return {"should_update": False, "reason": "Failed to parse agent response"}
 
 def main():
     # Set up argument parser
@@ -450,12 +557,12 @@ def main():
                         # Get last 3 updates for both agents
                         recent_log = get_last_n_updates(runner.log_file, 3)
                         
-                        # Read previous story narration
-                        with open(story_log_file, 'r') as f:
-                            story_log = f.read()
+                        # Get update decision from update_decidor_agent
+                        update_decision = asyncio.run(get_update_decision(json_log_file))
+                        print("\n[UPDATE DECIDER] Response:", json.dumps(update_decision, indent=2))
+                        logger.info(f"Update decider decision: {update_decision}")
                         
-                        # Get story narration from agent every 3 turns
-                        if turn_counter % 3 == 0:
+                        if update_decision.get('should_update', False):
                             # Get the story thus far
                             with open(story_log_file, 'r') as f:
                                 story_thus_far = f.read().strip()
@@ -463,26 +570,12 @@ def main():
                             # Get the last 3 game updates
                             recent_updates = get_last_n_json_updates(json_log_file, 3)
                             
-                            # Prepare the prompt
-                            prompt = (
-                                "The story thus far:\n\n"
-                                f"{story_thus_far}\n\n"
-                                "Game Log to narrate:\n\n"
-                                f"{recent_updates}\n\n"
-                                "Create a new narration that:\n"
-                                "1. Only describes the new events that haven't been narrated yet\n"
-                                "2. Maintains continuity with previous narrations\n"
-                                "3. Is concise and engaging\n"
-                                "4. Includes any dialogue or important details\n"
-                                "5. Does not repeat information already narrated\n\n"
-                                "Respond with the new narration only."
-                            )
-                            
+                            # Get story narration from agent
                             narration = asyncio.run(get_story_narration(recent_updates, story_thus_far))
                             print(f"Story agent suggests narration: {narration}")
                             if narration and narration.strip():  # Only log if there's actual narration
                                 logger.info(f"Story agent suggests narration: {narration}")
-                                log_story_narration(story_log_file, narration)
+                                log_story_narration(story_log_file, narration, update_decision)
                                 
                                 # Speak the narration if TTS is available
                                 if tts:
@@ -495,9 +588,9 @@ def main():
                         command = asyncio.run(get_agent_command(runner.log_file))
                         logger.info(f"Game agent suggests command: {command}")
                         
-                        # Log the agent's command
+                        # Log the agent's command and update status
                         log_agent_command(runner.log_file, command)
-                        update_last_json_entry(json_log_file, if_agent_action=command)
+                        update_last_json_entry(json_log_file, if_agent_action=command, story_updated=update_decision.get('should_update', False))
                         
                         # Send command to game
                         if command.upper() == 'ENTER':
@@ -505,7 +598,6 @@ def main():
                         else:
                             os.write(fd, (command + '\n').encode())
                         
-                        turn_counter += 1  # Increment turn counter after each command
                         last_output_time = now
                         
                         # Wait for key press before continuing
