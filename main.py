@@ -16,6 +16,16 @@ from dotenv import load_dotenv
 from collections import deque
 import json
 from tts_handler import TTSHandler
+import re
+
+# Import from new modules
+from utils.logging_utils import main_logger as logger, log_agent_interaction
+from utils.file_utils import get_story_log_filename, get_json_log_filename, get_last_n_updates, get_last_n_json_updates
+from utils.text_utils import clean_log_text
+from game.game_io import wait_for_key, print_game_output, print_agent_response
+from game.game_logger import log_agent_command, log_story_narration, log_game_update, update_last_json_entry
+from agents.agent_interactions import get_agent_command, get_update_decision
+from agents.story_handler import get_story_narration
 
 # Load environment variables from .env file
 load_dotenv()
@@ -114,7 +124,7 @@ def log_agent_interaction(agent_name: str, system_message: str, prompt: str, res
     with open(log_file, 'w', encoding='utf-8') as f:
         json.dump(entries, f, indent=2)
 
-async def get_agent_command(log_file: str) -> str:
+async def get_agent_command(log_file: str) -> dict:
     """Get the next command from the agent based on the game log."""
     # Create the specific session where the conversation will happen
     session = await session_service.create_session(
@@ -137,13 +147,15 @@ async def get_agent_command(log_file: str) -> str:
             log_text = f.read()
     except Exception as e:
         logger.error(f"Error reading log file: {e}")
-        return "look"
+        return {"command": "look", "explanation": "Default command due to error reading log file"}
 
     # Clean the log text
     clean_text = clean_log_text(log_text)
 
     # Prepare the user's message in ADK format
-    query = "Here is the current game log. What should the next command be?\n\n" + clean_text + "\n\nRespond with the next command only."
+    query = (
+        "Here is the current game log. What should the next command be?\n\n" + clean_text + "\n\nRespond with ONLY the raw JSON object, nothing else. Do not use markdown or any extra text."
+    )
     content = types.Content(role='user', parts=[types.Part(text=query)])
 
     final_response_text = "Agent did not produce a final response."  # Default
@@ -165,11 +177,32 @@ async def get_agent_command(log_file: str) -> str:
         final_response_text
     )
 
-    return final_response_text.strip()
+    def extract_json(text):
+        text = text.strip()
+        # Remove triple backticks and optional 'json'
+        text = re.sub(r'^```json\s*|^```|```$', '', text, flags=re.MULTILINE).strip()
+        # Extract the first {...} block if extra text is present
+        match = re.search(r'\{[\s\S]*\}', text)
+        if match:
+            return match.group(0)
+        return text
 
-def log_agent_command(log_file: str, command: str):
-    """Add the agent's command to the log file with a timestamp."""
+    try:
+        # Parse the JSON response, cleaning up markdown if needed
+        raw_json = extract_json(final_response_text)
+        response = json.loads(raw_json)
+        if not isinstance(response, dict) or 'command' not in response or 'explanation' not in response:
+            raise ValueError("Invalid response format")
+        return response
+    except (json.JSONDecodeError, ValueError) as e:
+        logger.error(f"Error parsing agent response: {e}")
+        return {"command": "look", "explanation": "Default command due to invalid response format"}
+
+def log_agent_command(log_file: str, command_data: dict):
+    """Add the agent's command and explanation to the log file with a timestamp."""
     timestamp = datetime.now().strftime('%H:%M:%S.%f')[:-3]
+    command = command_data['command']
+    explanation = command_data['explanation']
     log_entry = f"[{timestamp}] [AGENT] {command}\n"
     
     with open(log_file, 'a', encoding='utf-8') as f:
@@ -271,49 +304,50 @@ def get_json_log_filename(game_path: str) -> str:
     # Return the full path
     return f'logs/{game_name}_{timestamp}.json'
 
-def log_game_update(json_log_file: str, game_output: str, if_agent_action: str = None, story_updated: bool = False):
-    """Add a game update to the JSON log file."""
+def log_game_update(json_log_file: str, game_output: str, if_agent_action: dict = None, story_updated: bool = False):
+    """Log game updates to a JSON file."""
     timestamp = datetime.now().strftime('%H:%M:%S.%f')[:-3]
     
-    # Create the update object
-    update = {
+    # Create logs directory if it doesn't exist
+    os.makedirs('logs', exist_ok=True)
+    
+    # Create the log entry
+    log_entry = {
         "timestamp": timestamp,
         "game_output": game_output,
+        "if_agent_action": if_agent_action,
         "story_updated": story_updated
     }
     
-    # Add optional fields if they exist
-    if if_agent_action:
-        update["if_agent_action"] = if_agent_action
-    
-    # Read existing updates or create new list
+    # Read existing entries or create new list
     try:
         with open(json_log_file, 'r', encoding='utf-8') as f:
-            updates = json.load(f)
+            entries = json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
-        updates = []
+        entries = []
     
-    # Append new update
-    updates.append(update)
+    # Append new entry
+    entries.append(log_entry)
     
     # Write back to file
     with open(json_log_file, 'w', encoding='utf-8') as f:
-        json.dump(updates, f, indent=2)
+        json.dump(entries, f, indent=2)
 
 def update_last_json_entry(json_log_file: str, **kwargs):
-    """Update the last entry in the JSON log file with additional fields."""
+    """Update the last entry in the JSON log file with additional information."""
     try:
         with open(json_log_file, 'r', encoding='utf-8') as f:
-            updates = json.load(f)
+            entries = json.load(f)
         
-        if updates:
+        if entries:
             # Update the last entry with any provided fields
-            updates[-1].update(kwargs)
+            entries[-1].update(kwargs)
             
+            # Write back to file
             with open(json_log_file, 'w', encoding='utf-8') as f:
-                json.dump(updates, f, indent=2)
+                json.dump(entries, f, indent=2)
     except (FileNotFoundError, json.JSONDecodeError) as e:
-        logger.error(f"Error updating JSON: {e}")
+        logger.error(f"Error updating last JSON entry: {e}")
 
 def get_last_n_updates(log_file: str, n: int = 3) -> str:
     """Get the last N dfrotz updates from the log file."""
@@ -459,178 +493,96 @@ async def get_update_decision(json_log_file: str) -> dict:
 
 def main():
     # Set up argument parser
-    parser = argparse.ArgumentParser(description='Run a text-based game with Frotz')
+    parser = argparse.ArgumentParser(description='Run a text-based game with AI agents')
     parser.add_argument('game_path', nargs='?', default='games/905.z5',
                       help='Path to the game file (default: games/905.z5)')
+    parser.add_argument('--tts', action='store_true', help='Enable text-to-speech')
     args = parser.parse_args()
 
-    # Initialize TTS if enabled
-    tts = None
-    if USE_TTS:
-        try:
-            tts = TTSHandler()
-            logger.info("TTS Handler initialized successfully")
-        except Exception as e:
-            logger.error(f"Failed to initialize TTS: {e}")
-            logger.info("Continuing without TTS support")
-    else:
-        logger.info("TTS is disabled")
+    # Override TTS setting if specified in arguments
+    if args.tts:
+        global USE_TTS
+        USE_TTS = True
 
-    # Create story log file with dynamic name
+    # Initialize TTS handler if enabled
+    tts_handler = TTSHandler() if USE_TTS else None
+
+    # Get log file paths
     story_log_file = get_story_log_filename(args.game_path)
     json_log_file = get_json_log_filename(args.game_path)
-    
+
+    # Create logs directory if it doesn't exist
+    os.makedirs('logs', exist_ok=True)
+
     # Initialize story log file
     with open(story_log_file, 'w', encoding='utf-8') as f:
-        f.write("")  # Create empty file
+        pass
 
-    # Check if game file exists
-    if not os.path.exists(args.game_path):
-        print(f"Error: Game file not found at {args.game_path}")
-        print("Please make sure the game file exists and update the path in the script.")
-        return
+    # Initialize JSON log file
+    with open(json_log_file, 'w', encoding='utf-8') as f:
+        json.dump([], f)
 
-    logger.info(f"Starting game: {args.game_path}")
-    runner = None
+    # Initialize the game runner
+    runner = FrotzRunner(args.game_path)
     
     try:
-        logger.info("Initializing FrotzRunner")
-        runner = FrotzRunner(args.game_path)
+        # Start the game
+        runner.start()
         
-        # Start the game and get the initial output
-        logger.info("Starting game...")
-        
-        # Create PTY for game
-        pid, fd = os.forkpty()
-        if pid == 0:
-            # Child process: run dfrotz
-            os.execv(runner.frotz_path, [runner.frotz_path, args.game_path])
-        else:
-            # Parent process: handle game interaction
-            buffer = ''
-            last_output_time = time.time()
-            fd_eof = False
-            turn_counter = 0  # Counter for game turns
-            
-            while True:
-                try:
-                    # Read game output
-                    rlist = [fd]
-                    ready, _, _ = select.select(rlist, [], [], 0.1)
-                    now = time.time()
-                    
-                    for ready_fd in ready:
-                        if ready_fd == fd:
-                            try:
-                                data = os.read(fd, 1024)
-                                if not data:
-                                    fd_eof = True
-                                    break
-                                
-                                text = data.decode(errors='replace')
-                                for char in text:
-                                    if char == '\n':
-                                        # Log to file
-                                        runner._log_output(buffer)
-                                        # Print to console with the newline
-                                        print_game_output(buffer + '\n')
-                                        buffer = ''
-                                    else:
-                                        buffer += char
-                                        if buffer.endswith('***MORE***'):
-                                            # Log to file
-                                            runner._log_output(buffer)
-                                            # Print to console without extra newline
-                                            print_game_output(buffer)
-                                            buffer = ''
-                            except OSError:
-                                fd_eof = True
-                                break
-                    
-                    # If no output for 1 second, get command from agent
-                    if not ready and (now - last_output_time) > 1.0:
-                        # Log any remaining buffer as a complete update
-                        if buffer:
-                            runner._log_output(buffer, True)
-                            buffer = ''
-                        
-                        # Get last 3 updates for both agents
-                        recent_log = get_last_n_updates(runner.log_file, 3)
-                        
-                        # Get update decision from update_decidor_agent
-                        update_decision = asyncio.run(get_update_decision(json_log_file))
-                        print("\n[UPDATE DECIDER] Response:", json.dumps(update_decision, indent=2))
-                        logger.info(f"Update decider decision: {update_decision}")
-                        
-                        if update_decision.get('should_update', False):
-                            # Get the story thus far
-                            with open(story_log_file, 'r') as f:
-                                story_thus_far = f.read().strip()
-                            
-                            # Get the last 3 game updates
-                            recent_updates = get_last_n_json_updates(json_log_file, 3)
-                            
-                            # Get story narration from agent
-                            narration = asyncio.run(get_story_narration(recent_updates, story_thus_far))
-                            print(f"Story agent suggests narration: {narration}")
-                            if narration and narration.strip():  # Only log if there's actual narration
-                                logger.info(f"Story agent suggests narration: {narration}")
-                                log_story_narration(story_log_file, narration, update_decision)
-                                
-                                # Speak the narration if TTS is available
-                                if tts:
-                                    try:
-                                        tts.speak(narration)
-                                    except Exception as e:
-                                        logger.error(f"TTS error: {e}")
-                        
-                        # Get command from game agent
-                        command = asyncio.run(get_agent_command(runner.log_file))
-                        logger.info(f"Game agent suggests command: {command}")
-                        
-                        # Log the agent's command and update status
-                        log_agent_command(runner.log_file, command)
-                        update_last_json_entry(json_log_file, if_agent_action=command, story_updated=update_decision.get('should_update', False))
-                        
-                        # Send command to game
-                        if command.upper() == 'ENTER':
-                            os.write(fd, b'\n')
-                        else:
-                            os.write(fd, (command + '\n').encode())
-                        
-                        last_output_time = now
-                        
-                        # Wait for key press before continuing
-                        wait_for_key()
-                    
-                    if fd_eof:
-                        if buffer:
-                            runner._log_output(buffer, True)
-                            print_game_output(buffer)
-                        logger.info("Game process completed")
-                        break
-                        
-                except KeyboardInterrupt:
-                    logger.info("Received keyboard interrupt")
-                    print("\nQuitting game...")
-                    break
-                except Exception as e:
-                    logger.error(f"Error during gameplay: {e}", exc_info=True)
-                    print(f"Error during gameplay: {e}")
-                    traceback.print_exc()
-                    break
+        # Main game loop
+        while True:
+            # Get game output (non-blocking)
+            game_output = runner.get_output()
+            if game_output:
+                # Print game output
+                print_game_output(game_output)
                 
+                # Log the game update
+                log_game_update(json_log_file, game_output)
+                
+                # Get update decision
+                update_decision = asyncio.run(get_update_decision(json_log_file))
+                
+                if update_decision.get('should_update', False):
+                    # Get the last few updates for context
+                    last_updates = get_last_n_json_updates(json_log_file)
+                    last_story = get_last_n_updates(story_log_file)
+                    
+                    # Get story narration
+                    narration = asyncio.run(get_story_narration(last_updates, last_story))
+                    
+                    # Log the narration
+                    log_story_narration(story_log_file, narration, update_decision)
+                    
+                    # Update the last JSON entry with story info
+                    update_last_json_entry(json_log_file, story_updated=True, story_narration=narration)
+                    
+                    # Use TTS if enabled
+                    if tts_handler:
+                        tts_handler.speak(narration)
+                
+                # Get agent command
+                command_data = asyncio.run(get_agent_command(runner.log_file))
+                
+                # Log and execute the command
+                log_agent_command(runner.log_file, command_data)
+                runner.send_command(command_data['command'])
+                
+                # Wait for key press if enabled
+                wait_for_key()
+            else:
+                # Sleep briefly to avoid busy-waiting
+                time.sleep(0.1)
+    except KeyboardInterrupt:
+        print("\nGame terminated by user.")
     except Exception as e:
-        logger.error(f"Failed to start game: {e}", exc_info=True)
-        print(f"Failed to start game: {e}")
+        print(f"\nAn error occurred: {e}")
         traceback.print_exc()
     finally:
-        # Ensure we clean up the process
-        if runner:
-            logger.info("Cleaning up runner")
-            runner.quit()
-        logger.info("Game closed.")
-        print("Game closed.")
+        # Clean up
+        runner.quit()
+        if tts_handler:
+            tts_handler.cleanup()
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

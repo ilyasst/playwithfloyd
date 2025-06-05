@@ -18,7 +18,26 @@ game_agent = Agent(
         """
         You are playing an interactive fiction game. 
         Read the current log and suggest the next command to send to the game. 
-        If you see a prompt like '>', or '***MORE***', respond with the next logical command or 'ENTER' if needed. 
+        If you see a prompt like '>', or '***MORE***', respond with ONLY a JSON object in the following exact format (no markdown, no code blocks, just the raw JSON):
+        {
+            "command": "the command to send to the game",
+            "explanation": "brief explanation of why this command was chosen"
+        }
+        
+        For example:
+        {
+            "command": "north",
+            "explanation": "Moving north to explore the new area mentioned in the description"
+        }
+        
+        If you need to press ENTER, use:
+        {
+            "command": "ENTER",
+            "explanation": "Pressing ENTER to continue reading the text"
+        }
+        
+        IMPORTANT: Output ONLY the raw JSON object, with no markdown, no explanation, and no extra text. Do not use triple backticks or the word 'json'. Do not add any comments or preamble. Only output the JSON object.
+        
         You can rely on the following guide to learn how to play the game: 
         =========================================
 Communicating with Interactive Fiction ||
@@ -47,7 +66,7 @@ abbreviated:  NORTH to N, SOUTH to S, EAST to E, WEST to W, NORTHEAST to
 NE, NORTHWEST to NW, SOUTHEAST to SE, SOUTHWEST to SW, UP to U, and DOWN
 to D.  IN and OUT will also work in certain places.
 
-There are many differnet kinds of sentences used in Interactive Fiction.
+There are many different kinds of sentences used in Interactive Fiction.
 Here are some examples:
 
 > WALK TO THE NORTH
@@ -113,12 +132,6 @@ examples:
 > UNCLE OTTO, GIVE ME YOUR WALLET
 > HORSE, WHERE IS YOUR SADDLE?
 > BOY, RUN HOME THEN CALL THE POLICE
-> MIGHTY WIZARD, TAKE THIS POISONED APPLE.  EAT IT
-
-Notice that in the last two examples, you are giving the characters more
-than one command on the same input line.  Keep in mind, however, that many
-creatures don't care for idle chatter; your actions will speak louder than
-your words.
 """
     ),
     tools=[send_command_to_game]
