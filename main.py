@@ -27,8 +27,20 @@ from game.game_logger import log_agent_command, log_story_narration, log_game_up
 from agents.agent_interactions import get_agent_command, get_update_decision
 from agents.story_handler import get_story_narration
 
+# Debug: Print environment variables before loading .env
+print("Environment variables before load_dotenv:")
+print(f"GOOGLE_GENAI_USE_VERTEXAI: {os.getenv('GOOGLE_GENAI_USE_VERTEXAI')}")
+print(f"GOOGLE_CLOUD_PROJECT: {os.getenv('GOOGLE_CLOUD_PROJECT')}")
+print(f"GOOGLE_CLOUD_LOCATION: {os.getenv('GOOGLE_CLOUD_LOCATION')}")
+
 # Load environment variables from .env file
 load_dotenv()
+
+# Debug: Print environment variables after loading .env
+print("\nEnvironment variables after load_dotenv:")
+print(f"GOOGLE_GENAI_USE_VERTEXAI: {os.getenv('GOOGLE_GENAI_USE_VERTEXAI')}")
+print(f"GOOGLE_CLOUD_PROJECT: {os.getenv('GOOGLE_CLOUD_PROJECT')}")
+print(f"GOOGLE_CLOUD_LOCATION: {os.getenv('GOOGLE_CLOUD_LOCATION')}")
 
 # Get TTS configuration from environment
 USE_TTS = os.getenv('USE_TTS', 'false').lower() == 'true'
@@ -582,7 +594,7 @@ def main():
         # Clean up
         runner.quit()
         if tts_handler:
-            tts_handler.cleanup()
+            tts_handler.stop()
 
 if __name__ == "__main__":
     main()
